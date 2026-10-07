@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Runnable Quick start in `demo/` (`make demo`): read-only and sandbox by default, with an opt-in sandbox create + label (`POSTWAY_DEMO_CREATE=1`). `make check` lints and type-checks the demo. Not part of the sdist or wheel.
 
+### Changed
+
+- Release tags are bare SemVer (`MAJOR.MINOR.PATCH`, no `v` prefix) and are cut through git-flow: CI runs on `develop`, `release/**` and `hotfix/**`, and Publish only accepts a tag on `main` that equals the package version. Dependabot targets `develop`.
+
 ## [1.0.0] - 2026-10-07
 
 Initial public release, a port of the Node SDK `@th-postway/post-sdk` 22.0.0 with the same endpoint coverage.
@@ -29,5 +33,5 @@ Initial public release, a port of the Node SDK `@th-postway/post-sdk` 22.0.0 wit
 - Error `url` and messages report route templates (`receipt/public/:token`) instead of parameter values; `PostwayApiError.body` is kept out of `args`, `str`, `repr`, `vars` and pickles.
 - `PostwayConfigError` messages never echo the offending input.
 
-[Unreleased]: https://github.com/th-postway/post-sdk-python/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/th-postway/post-sdk-python/releases/tag/v1.0.0
+[Unreleased]: https://github.com/th-postway/post-sdk-python/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/th-postway/post-sdk-python/releases/tag/1.0.0

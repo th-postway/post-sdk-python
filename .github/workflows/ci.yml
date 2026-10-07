@@ -1,8 +1,9 @@
 name: CI
 
+# git-flow: develop is the integration branch, release/* and hotfix/* carry a version, main holds releases.
 on:
   push:
-    branches: [main]
+    branches: [main, develop, 'release/**', 'hotfix/**']
   pull_request:
 
 permissions:
@@ -20,12 +21,21 @@ jobs:
       matrix:
         python: ['3.11', '3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
       - run: uv sync --locked
+      - name: Release branch must be SemVer and match the version
+        if: startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/hotfix/')
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          ver="${BRANCH#*/}"
+          version=$(uv run python -c "import postway; print(postway.__version__)")
+          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "branch $BRANCH must be named <type>/MAJOR.MINOR.PATCH"; exit 1; fi
+          if [ "$ver" != "$version" ]; then echo "branch $BRANCH does not match package version $version"; exit 1; fi
       - run: make check
       - run: uv build
       - name: Smoke-test the wheel in a clean environment
