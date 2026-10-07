@@ -60,9 +60,34 @@ POSTWAY_MERCHANT_ACCESS_TOKEN=... \
 make test-integration
 ```
 
-## Releasing
+## Branches and releases
 
-1. Bump `__version__` in `src/postway/_version.py`.
-2. Move the `Unreleased` entries in `CHANGELOG.md` under the new version with today's date.
-3. Commit, then tag and push: `git tag v1.x.y && git push origin main v1.x.y`.
-4. The `Publish` workflow verifies the tag matches `__version__`, runs `make check`, builds, and publishes to PyPI with trusted publishing (OIDC). Configure the trusted publisher on PyPI for this repository, workflow `publish.yml` and environment `pypi`; no API token is stored.
+The repository uses git-flow with its default settings (no tag prefix):
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | released code; every release is a tag on it |
+| `develop` | integration branch; open pull requests against it |
+| `feature/*`, `bugfix/*` | work branches, started from `develop` |
+| `release/<version>` | release preparation, started from `develop` |
+| `hotfix/<version>` | urgent fix to a released version, started from `main` |
+
+Versions are SemVer `MAJOR.MINOR.PATCH` with **no `v` prefix**, used as is in branch and tag names: `release/1.1.0` becomes tag `1.1.0`. The major stays `1`.
+
+CI (`.github/workflows/ci.yml`) runs on pushes to `main`, `develop`, `release/**` and `hotfix/**`, and on every pull request. On `release/*` and `hotfix/*` it also fails unless the branch name is `MAJOR.MINOR.PATCH` and equals `__version__`. Dependabot opens its pull requests against `develop`.
+
+### Releasing
+
+1. `git flow release start 1.x.y` (from `develop`).
+2. Bump `__version__` in `src/postway/_version.py`, move the `Unreleased` entries in `CHANGELOG.md` under `[1.x.y]` with today's date, and commit.
+3. `git push -u origin release/1.x.y` and wait for CI.
+4. `git flow release finish 1.x.y`: merges into `main`, tags `1.x.y` there, and merges back into `develop`.
+5. `git push --atomic origin main develop 1.x.y`, then delete `release/1.x.y` on the remote if it is still there.
+
+For an urgent fix, run the same steps with `git flow hotfix start 1.x.y` (from `main`) and `git flow hotfix finish 1.x.y`.
+
+The `Publish` workflow (`.github/workflows/publish.yml`) runs only for tags matching `MAJOR.MINOR.PATCH`; a `v`-prefixed or pre-release tag does not start it. It checks that the tag is on `main` and equals `__version__`, runs `make check`, builds, and publishes to PyPI with trusted publishing (OIDC).
+
+GitHub setup: a `pypi` environment, and a trusted publisher on PyPI for this repository, workflow `publish.yml` and environment `pypi`; no API token is stored. Limit the environment's deployment tags to `[0-9]*.[0-9]*.[0-9]*`.
+
+Never move or reuse a published tag. If `Publish` fails for a transient reason, re-run it; otherwise fix forward with a hotfix and the next patch version.
