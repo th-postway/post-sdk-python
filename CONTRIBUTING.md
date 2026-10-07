@@ -40,7 +40,7 @@ tests/integration           read-only live checks, skipped without credentials
 - `PostwayConfigError` messages never repeat the offending value.
 - Every caller-supplied path segment goes through `param()` in `src/postway/_http.py`, so it is validated and shown as `:name` in errors.
 - Header values go through the validators in `src/postway/_validation.py`.
-- Redirects stay refused, and nothing is retried.
+- Redirects stay refused, and nothing is retried beyond the single 403 replay after a token refresh.
 - No internal hostnames, ports, service names or private package names anywhere in code, comments, tests or docs. The only public hosts are the two in `src/postway/_environments.py`.
 
 ## Adding an endpoint

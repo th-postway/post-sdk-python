@@ -18,7 +18,7 @@ You will receive an acknowledgement within three business days. Confirmed issues
 - Header values (`access_token`, `token_type`, `user_agent`) are validated at construction so they cannot inject headers.
 - Caller-supplied path parameters are percent-encoded and may not be empty, `.` or `..`.
 - Redirects are never followed; a 3xx response raises `PostwayRequestError`.
-- Nothing is retried, so non-idempotent calls are never sent twice.
+- Nothing is retried except one replay of an authenticated call after a 403 when `get_access_token` supplied a fresh token; the server rejected the first attempt, so non-idempotent calls are never applied twice.
 - Error messages and `url` attributes never contain tokens, tracking numbers or other path parameters, and response bodies stay out of `args`, `str()`, `repr()`, `vars()` and pickles.
 - The SDK has no runtime dependencies, does not log, and does not read environment variables.
 

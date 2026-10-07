@@ -10,4 +10,6 @@ build/
 .coverage
 htmlcov/
 .env
+.env.*
 .DS_Store
+demo/output/

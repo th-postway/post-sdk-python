@@ -8,6 +8,7 @@
     store_name = client.auth.account_info()["store"]["name"]
 """
 
+from ._access_token import AccessToken, AccessTokenProvider, AccessTokenRefreshReason
 from ._client import PostwayMerchantClient
 from ._environments import MERCHANT_BASE_URLS, MerchantEnvironment
 from ._errors import PostwayApiError, PostwayBusinessError, PostwayConfigError, PostwayError, PostwayRequestError
@@ -75,6 +76,9 @@ from .types import (
 
 __all__ = [
     "MERCHANT_BASE_URLS",
+    "AccessToken",
+    "AccessTokenProvider",
+    "AccessTokenRefreshReason",
     "AuthResource",
     "CalculatedRange",
     "EnabledRange",

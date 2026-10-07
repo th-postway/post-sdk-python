@@ -7,6 +7,7 @@ It is a port of the Node SDK [`@th-postway/post-sdk`](https://github.com/th-post
 - [Requirements](#requirements)
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Demo](#demo)
 - [Authentication](#authentication)
 - [Environments](#environments)
 - [Method catalogue](#method-catalogue)
@@ -86,6 +87,17 @@ Path(Path(label["file_name"]).name).write_bytes(decode_file(label))
 
 Requests and responses are plain `dict`s typed as `TypedDict`s, so editors and type checkers (mypy, pyright) know every key, and fields the SDK does not know yet still come through.
 
+## Demo
+
+[`demo/quick_start.py`](demo/README.md) is the Quick start as a script you can run from a clone of this repository. It pings, reads account info, couriers, Thai postal areas and the store's parcels. It targets **sandbox** and is **read-only** unless you set `POSTWAY_DEMO_CREATE=1`, which also creates a sandbox parcel and saves its label. The token comes from the environment only.
+
+```bash
+uv sync
+POSTWAY_ACCESS_TOKEN=... make demo   # uv run python demo/quick_start.py
+```
+
+See [demo/README.md](demo/README.md) for every variable and for using the local SDK in another project. The Node and .NET SDKs ship the same demo. The demo is not part of the sdist or wheel.
+
 ## Authentication
 
 The Merchant API uses a **merchant session access token**. Postway issues it to your store out of band; there is no token endpoint in the API. The SDK sends it as:
@@ -96,8 +108,31 @@ Authorization: Bearer <access_token>
 
 - The server looks up the session by token type plus token, so pass `token_type` only if Postway gave you a different type. The default is `"Bearer"`.
 - Every call acts as the **owner of the store** the token belongs to, and every query is scoped to that store.
-- A missing, unknown or **expired** token gets HTTP **403**. `auth.account_info()` returns `session.expired`, so you can rotate the token before it expires.
-- `receipts.*` and `health.ping()` are public and never send the token. Every other method raises `PostwayConfigError` before any network call if the client has no `access_token`.
+- A missing, unknown or **expired** token gets HTTP **403**. `auth.account_info()` returns `session.expired`; pass `get_access_token` (below) and the SDK rotates the token for you.
+- `receipts.*` and `health.ping()` are public and never send the token. Every other method raises `PostwayConfigError` before any network call if the client has neither `access_token` nor `get_access_token`.
+
+### Refreshing tokens automatically
+
+The API cannot issue tokens, so you supply them: `get_access_token(reason)` returns a token string or an `AccessToken(access_token, expires_at=None)`, and the SDK decides when to call it.
+
+```python
+from postway import AccessToken, AccessTokenRefreshReason, PostwayMerchantClient
+
+
+def get_access_token(reason: AccessTokenRefreshReason) -> AccessToken:
+    # reason: "initial" | "expiring" | "forbidden"
+    token, expires_at = secret_store.fetch_postway_token()
+    return AccessToken(token, expires_at)  # expires_at is optional: datetime or ISO 8601 string
+
+
+client = PostwayMerchantClient(get_access_token=get_access_token)
+```
+
+- **When it is called**: once for the first token (`"initial"`), when **75% of the token's lifetime has elapsed** (less than 25% left, `"expiring"`), and after a **403** (`"forbidden"`). If both `access_token` and `get_access_token` are set, the static token is used first.
+- **Lifetime** comes from the first source available: the `expires_at` you return (a naive `datetime` means UTC), else the JWT `exp` / `iat` claims (decoded locally; the signature is not checked), else one `POST auth/account/info` probe per token that reads `session.expired`. Your own `auth.account_info()` calls update it as well. A probe answered with 403 refreshes straight away; any other probe failure is ignored and the call goes ahead.
+- **403 replay**: when an authenticated call gets a 403, the SDK refreshes once and sends the same request once more. A second 403 raises `PostwayApiError` as usual, so it never loops. The API rejects the token before the request runs, so the replay is safe for `create` and `cancel` too.
+- The refresh is thread-safe: threads sharing a client share one `get_access_token` call and one probe. Exceptions raised by `get_access_token` propagate unchanged, and nothing is sent. A returned token that is not a safe header value raises `PostwayConfigError` without echoing it. `repr(AccessToken(...))` never shows the token.
+- Without `get_access_token` nothing changes: no probe, no refresh, no replay.
 
 ## Environments
 
@@ -119,6 +154,7 @@ All options are keyword-only.
 | Option         | Default                                  | Notes                                                                        |
 | -------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
 | `access_token` | —                                        | Merchant session token                                                       |
+| `get_access_token` | —                                    | Token provider; turns on automatic refresh (see above)                       |
 | `token_type`   | `"Bearer"`                               | Auth scheme word of `Authorization`                                          |
 | `environment`  | `"production"`                           | See table above                                                              |
 | `base_url`     | from `environment`                       | `https://` only (`http://` for localhost); no credentials, query or fragment |
@@ -175,7 +211,7 @@ Paths are relative to the base URL.
 
 Behaviour worth knowing:
 
-- **`order_shipments.create`** accepts one request or any sequence of them; the server always receives a list. Each parcel is priced, verified, created, booked with the courier, and covered by one receipt. It is **not idempotent** and the SDK never retries it (the SDK retries nothing). A batch stops at the first failing parcel, and parcels created before that failure remain. On `PostwayBusinessError`, look them up by `my_tracking_no` (`order_shipments.filter`) before you resubmit.
+- **`order_shipments.create`** accepts one request or any sequence of them; the server always receives a list. Each parcel is priced, verified, created, booked with the courier, and covered by one receipt. It is **not idempotent** and the SDK never retries it, except for the single replay after a 403 when `get_access_token` is set (the server rejected the token, so nothing was created). A batch stops at the first failing parcel, and parcels created before that failure remain. On `PostwayBusinessError`, look them up by `my_tracking_no` (`order_shipments.filter`) before you resubmit.
 - **`order_shipments.cancel`** matches the courier `tracking_no` only, not `my_tracking_no` or refs.
 - **`labels.order_shipments`**: each `tracking_nos` entry may be a `tracking_no`, `my_tracking_no` or `ref1..3`. If none match, the server returns 400.
 - **`thailand.filter`**: the field filters (`sub_district`, `district`, `province`, `zip_code`) are exact matches. `shipment_provider_names` restricts results to areas served by those couriers; omit it for all (the SDK always sends at least `[]`). The response spells the zip field `zipcode`.
@@ -207,7 +243,7 @@ The server reports errors as `{"code", "isSuccess": false, "message", "data": nu
 | HTTP | Meaning                                                                                         |
 | ---- | ----------------------------------------------------------------------------------------------- |
 | 400  | Validation failure (`messages` may hold several entries) or business rule, e.g. order not found |
-| 403  | Missing, unknown or expired token                                                               |
+| 403  | Missing, unknown or expired token (with `get_access_token`: still 403 after one refresh)        |
 | 404  | Public receipt token invalid                                                                    |
 | 500  | Server error; `messages` is a generic text                                                      |
 
@@ -255,9 +291,10 @@ class FileHttpResponse(TypedDict):
 - **Paths**: caller-supplied path parameters are percent-encoded (including `/`) and may not be empty, `.` or `..`, so a bad input cannot reach a different endpoint.
 - **Redirects** are refused: the default transport never follows one, and any 3xx response raises `PostwayRequestError`. The API never redirects, and following one could re-send `Authorization` elsewhere.
 - **Errors** report route templates instead of parameter values, and response bodies stay out of `str`/`repr`/`vars`/pickles (see [Errors](#errors)).
-- **No retries**, so non-idempotent calls such as `create` are never sent twice.
+- **No retries**, except one replay of an authenticated call after a 403 when `get_access_token` is set (the server rejected the token, so nothing ran). Server errors, timeouts and network failures are never retried, so non-idempotent calls such as `create` are never applied twice.
+- **Provider tokens** from `get_access_token` pass the same header check before use. JWT claims are read only to time a refresh; neither tokens nor claims appear in errors.
 - The SDK has **no runtime dependencies**, never logs, and never reads environment variables.
-- The access token is held privately and only sent on authenticated routes. Store it in a secret manager or environment variable, never in source control.
+- The access token is held privately and only sent on authenticated routes (`get_access_token` is never called for public ones). Store it in a secret manager or environment variable, never in source control.
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
@@ -275,10 +312,11 @@ Uses [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync             # creates .venv with the dev tools (pytest, mypy, ruff)
-make check          # ruff format --check + ruff check + mypy --strict + unit tests
+make check          # ruff format --check + ruff check + mypy --strict + unit tests (lint and types cover demo/ too)
 make test           # unit tests only (fake transport + a loopback server, no external network)
 make format         # apply ruff formatting and safe fixes
 make build          # sdist + wheel into dist/
+make demo           # run demo/quick_start.py (see Demo)
 ```
 
 ```
@@ -291,6 +329,7 @@ src/postway/resources/    one class per API area (auth, order_shipments, labels,
 src/postway/types/        TypedDict request/response types, one module per resource, plus enums
 tests/unit/               mirrors src; tests/unit/support.py holds the fake transport
 tests/integration/        read-only live checks, skipped without credentials
+demo/                     runnable Quick start (print allowed here only)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and the release procedure.
@@ -317,6 +356,7 @@ Same endpoints, wire fields, environments and error classes; names follow Python
 | --------------------------------------------------- | ------------------------------------------------------------- |
 | `new PostwayMerchantClient({ accessToken, ... })`   | `PostwayMerchantClient(access_token=..., ...)` (keyword-only) |
 | `tokenType`, `baseUrl`, `environment`, `userAgent`  | `token_type`, `base_url`, `environment`, `user_agent`         |
+| `getAccessToken` (may be async), `AccessToken`      | `get_access_token` (sync callable), `AccessToken` dataclass   |
 | `timeoutMs` (milliseconds)                          | `timeout` (seconds, `float`)                                  |
 | `fetch` option                                      | `transport` option (`Transport` protocol)                     |
 | `{ signal, timeoutMs }` per call                    | `timeout=` per call; no cancellation signal (sync client)     |

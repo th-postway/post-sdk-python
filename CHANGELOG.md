@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Runnable Quick start in `demo/` (`make demo`): read-only and sandbox by default, with an opt-in sandbox create + label (`POSTWAY_DEMO_CREATE=1`). `make check` lints and type-checks the demo. Not part of the sdist or wheel.
+
 ## [1.0.0] - 2026-10-07
 
 Initial public release, a port of the Node SDK `@th-postway/post-sdk` 22.0.0 with the same endpoint coverage.

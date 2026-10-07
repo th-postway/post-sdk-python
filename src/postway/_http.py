@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 from urllib.parse import quote, urlencode
 
+from ._access_token import AccessTokenProvider, _AccessTokenManager
 from ._errors import PostwayApiError, PostwayBusinessError, PostwayConfigError, PostwayError, PostwayRequestError
 from ._validation import (
     assert_auth_scheme,
@@ -138,9 +139,12 @@ class HttpPipeline:
         timeout: float,
         transport: Transport,
         user_agent: str,
+        get_access_token: AccessTokenProvider | None = None,
     ) -> None:
         self._base_url = normalize_base_url(base_url)
-        self._access_token = assert_header_value(access_token, "access_token") if access_token is not None else None
+        if access_token is not None:
+            assert_header_value(access_token, "access_token")
+        self._tokens = _AccessTokenManager(access_token, get_access_token)
         self._token_type = assert_auth_scheme(token_type)
         self._user_agent = assert_header_value(user_agent, "user_agent")
         self._timeout = assert_timeout(timeout)
@@ -181,9 +185,15 @@ class HttpPipeline:
         body: Any = None,
         query: Mapping[str, str | None] | None = None,
         timeout: float | None = None,
+        observes_session: bool = False,
     ) -> Any:
-        """Perform the call and return the parsed body (``None`` for an empty body)."""
-        return self._send_checked(method, path, auth=auth, body=body, query=query, timeout=timeout).body
+        """Perform the call and return the parsed body (``None`` for an empty body).
+
+        ``observes_session`` marks ``auth/account/info``, whose ``session.expired`` dates the token sent.
+        """
+        return self._send_checked(
+            method, path, auth=auth, body=body, query=query, timeout=timeout, observes_session=observes_session
+        ).body
 
     def request_envelope(
         self,
@@ -223,13 +233,42 @@ class HttpPipeline:
         body: Any,
         query: Mapping[str, str | None] | None,
         timeout: float | None,
+        observes_session: bool = False,
     ) -> _Result:
-        result = self._send(method, path, auth=auth, body=body, query=query, timeout=timeout)
+        """``_send`` with the access-token flow, raising :class:`PostwayApiError` for a non-2xx status.
+
+        With a token provider, a 403 on an authenticated call refreshes the token once and replays the call
+        once: the API rejects the token before running the request, so the replay cannot duplicate its effect.
+        """
+        token: str | None = None
+        may_replay = False
+        if auth:
+            if not self._tokens.configured:
+                raise PostwayConfigError(
+                    f"{method} {self.route(path)} requires a merchant access token; "
+                    "pass access_token or get_access_token to the client"
+                )
+
+            def probe(sent: str) -> tuple[int, Any]:
+                result = self._send(
+                    "POST", ["auth", "account", "info"], token=sent, body=None, query=None, timeout=timeout
+                )
+                return result.status, result.body
+
+            token, refreshed_after_forbidden = self._tokens.resolve(None if observes_session else probe)
+            may_replay = self._tokens.can_refresh and not refreshed_after_forbidden
+
+        result = self._send(method, path, token=token, body=body, query=query, timeout=timeout)
+        if result.status == 403 and may_replay and token is not None:
+            token = self._tokens.refresh_after_forbidden(token)
+            result = self._send(method, path, token=token, body=body, query=query, timeout=timeout)
         if not 200 <= result.status < 300:
             code, messages = _describe_body(result.body)
             raise PostwayApiError(
                 method=method, url=result.url, status=result.status, code=code, messages=messages, body=result.body
             )
+        if observes_session and token is not None:
+            self._tokens.observe_session(token, result.body)
         return result
 
     def _send(
@@ -237,7 +276,7 @@ class HttpPipeline:
         method: HttpMethod,
         path: Sequence[PathSegment],
         *,
-        auth: bool,
+        token: str | None,
         body: Any,
         query: Mapping[str, str | None] | None,
         timeout: float | None,
@@ -245,12 +284,8 @@ class HttpPipeline:
         url = self.url(path, query)
         reported_url = self.route_url(path)
         headers = {"Accept": ACCEPT, "User-Agent": self._user_agent}
-        if auth:
-            if not self._access_token:
-                raise PostwayConfigError(
-                    f"{method} {self.route(path)} requires a merchant access token; pass access_token to the client"
-                )
-            headers["Authorization"] = f"{self._token_type} {self._access_token}"
+        if token is not None:
+            headers["Authorization"] = f"{self._token_type} {token}"
         payload: bytes | None = None
         if body is not None:
             headers["Content-Type"] = "application/json"

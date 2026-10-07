@@ -28,6 +28,9 @@ def test_every_public_name_resolves() -> None:
 def test_public_surface_snapshot() -> None:
     assert sorted(postway.__all__) == sorted(
         [
+            "AccessToken",
+            "AccessTokenProvider",
+            "AccessTokenRefreshReason",
             "AuthResource",
             "CalculatedRange",
             "EnabledRange",

@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Self
 
+from ._access_token import AccessTokenProvider
 from ._environments import MERCHANT_BASE_URLS, MerchantEnvironment
 from ._errors import PostwayConfigError
 from ._http import DEFAULT_TIMEOUT, HttpPipeline, Transport, UrllibTransport, default_user_agent
@@ -27,7 +28,12 @@ class PostwayMerchantClient:
         account = client.auth.account_info()
 
     :param access_token: Merchant session access token, issued to you by Postway. Required for every
-        call except ``receipts.*`` and ``health.ping()``.
+        call except ``receipts.*`` and ``health.ping()``, unless ``get_access_token`` is set.
+    :param get_access_token: Supplies merchant access tokens and turns on automatic refresh. Called with
+        ``"initial"`` when there is no token yet, ``"expiring"`` once ≥75% of the current token's lifetime
+        has elapsed (from the returned :class:`AccessToken` ``expires_at``, else the JWT ``exp``/``iat``
+        claims, else one ``auth/account/info`` probe per token), and ``"forbidden"`` once after a 403, after
+        which the rejected call is replayed once. Return the token string or an :class:`AccessToken`.
     :param token_type: Token type sent before the token in ``Authorization``. Default ``"Bearer"``.
     :param base_url: Full API base URL; overrides ``environment``. Must be ``https://`` (plain
         ``http://`` is accepted only for localhost) with no credentials, query string or fragment.
@@ -51,6 +57,7 @@ class PostwayMerchantClient:
         self,
         *,
         access_token: str | None = None,
+        get_access_token: AccessTokenProvider | None = None,
         token_type: str = "Bearer",  # noqa: S107 - an auth scheme, not a secret
         base_url: str | None = None,
         environment: MerchantEnvironment = "production",
@@ -64,6 +71,8 @@ class PostwayMerchantClient:
                     f"environment must be one of: {', '.join(MERCHANT_BASE_URLS)} (or pass base_url)"
                 )
             base_url = MERCHANT_BASE_URLS[environment]
+        if get_access_token is not None and not callable(get_access_token):
+            raise PostwayConfigError("get_access_token must be callable")
         if transport is None:
             transport = UrllibTransport()
         elif not callable(getattr(transport, "send", None)):
@@ -76,6 +85,7 @@ class PostwayMerchantClient:
             timeout=timeout,
             transport=transport,
             user_agent=user_agent if user_agent is not None else default_user_agent(),
+            get_access_token=get_access_token,
         )
         self._http = http
         self.auth = AuthResource(http)

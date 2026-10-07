@@ -13,7 +13,7 @@ Python SDK for the Postway Merchant API, a port of `@th-postway/post-sdk` (Node)
 
 ```
 src/postway/__init__.py   public surface (__all__)
-src/postway/_client.py, _http.py, _errors.py, _environments.py, _validation.py, _files.py, _version.py
+src/postway/_client.py, _http.py, _access_token.py, _errors.py, _environments.py, _validation.py, _files.py, _version.py
 src/postway/resources/    one class per API area, snake_case plural (order_shipments.py)
 src/postway/types/        one TypedDict module per resource with the same name, plus enums.py and common.py
 tests/unit/core           client, pipeline and UrllibTransport tests
@@ -36,7 +36,7 @@ tests/integration         live, read-only (marker `integration`, deselected by d
 - `PostwayConfigError` messages never include the offending value.
 - Caller-supplied path segments are wrapped in `param(name, value)` so they are validated and appear as `:name` in error URLs and messages.
 - All header values pass through `src/postway/_validation.py`. `base_url` must be https (http only for loopback), with no credentials, query or fragment.
-- Redirects stay refused (redirect handler + 3xx check in the pipeline). No retries.
+- Redirects stay refused (redirect handler + 3xx check in the pipeline). No retries, except the single replay of an authenticated call after a 403 when `get_access_token` refreshed the token (`_access_token.py`).
 - No `print`, no `logging`, no `os.environ` reads in `src/`.
 - No tokens, tracking numbers, refs or response bodies in error messages. `PostwayApiError.body` stays out of `args`/`str`/`repr`/`vars`/pickles.
 - No internal infrastructure names (hosts, ports, service/framework names, private package names) anywhere in code, comments, tests or docs. Public hosts are only the two in `src/postway/_environments.py`.

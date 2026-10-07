@@ -16,5 +16,5 @@ class AuthResource:
         """The store, owner and session expiry behind the access token. ``POST auth/account/info``."""
         return cast(
             MerchantAuthAccountInfoResponse,
-            self._http.request("POST", ["auth", "account", "info"], auth=True, timeout=timeout),
+            self._http.request("POST", ["auth", "account", "info"], auth=True, timeout=timeout, observes_session=True),
         )

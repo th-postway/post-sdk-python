@@ -52,7 +52,8 @@ class OrderShipmentsResource:
         """Create one or more parcels, book them with the courier and issue the receipt.
         ``POST order-shipment/create``.
 
-        Not idempotent and never retried by the SDK. The batch stops at the first failure: parcels
+        Not idempotent and never retried by the SDK (bar the one replay after a 403 with
+        ``get_access_token``, which nothing ran for). The batch stops at the first failure: parcels
         created before it remain, so on :class:`~postway.PostwayBusinessError` look them up by
         ``my_tracking_no`` before resubmitting.
 
