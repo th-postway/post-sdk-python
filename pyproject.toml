@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "th-postway-post-sdk"
+dynamic = ["version"]
+description = "Python SDK for the Postway Merchant API (order shipments, labels, pricing, Thailand postal master)."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Postway Co., Ltd." }]
+keywords = ["postway", "merchant", "shipping", "thailand", "sdk"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/th-postway/post-sdk-python#readme"
+Repository = "https://github.com/th-postway/post-sdk-python"
+Issues = "https://github.com/th-postway/post-sdk-python/issues"
+Changelog = "https://github.com/th-postway/post-sdk-python/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = ["pytest>=9.1", "mypy>=2.4", "ruff>=0.16"]
+
+[tool.hatch.version]
+path = "src/postway/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/postway"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "-m", "not integration"]
+markers = ["integration: live, read-only checks against a real Merchant API"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+files = ["src/postway", "tests"]
+explicit_package_bases = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "T20", "S"]
+ignore = ["RUF001", "RUF002", "RUF003"] # Thai text in fixtures and docstrings is intended
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
