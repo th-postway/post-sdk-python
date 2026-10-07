@@ -24,7 +24,7 @@ jobs:
           if [ "v$VERSION" != "$TAG" ]; then echo "tag $TAG does not match package version $VERSION"; exit 1; fi
       - run: make check
       - run: uv build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
