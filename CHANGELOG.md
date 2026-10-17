@@ -12,6 +12,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Release tags are bare SemVer (`MAJOR.MINOR.PATCH`, no `v` prefix) and are cut through git-flow: CI runs on `develop`, `release/**` and `hotfix/**`, and Publish only accepts a tag on `main` that equals the package version. Dependabot targets `develop`.
 
+### Security
+
+- `PostwayRequestError` messages redact the transport exception's text: the sent URL (or its path and query) becomes the route template and the access token becomes `[redacted]`. `__cause__` is unchanged.
+- `repr()` of `TransportRequest` leaves out `headers` (which carry `Authorization`) and `body`; `repr()` of `TransportResponse` leaves out `body`.
+- A plain-text error body (an HTML error page, or a framework message that echoes the request path) no longer becomes the error message: only the JSON `message` field fills `messages`, and the message otherwise falls back to `HTTP <status>`. The body is still available as `error.body`.
+- A path parameter with an unpaired surrogate now throws `PostwayConfigError` before any request, instead of a `UnicodeEncodeError` that carried the value.
+- A refused redirect reads `… failed: redirect refused`, the same as the Node and .NET SDKs (the `(HTTP 3xx)` suffix is gone).
+
 ## [1.0.0] - 2026-10-07
 
 Initial public release, a port of the Node SDK `@th-postway/post-sdk` 22.0.0 with the same endpoint coverage.

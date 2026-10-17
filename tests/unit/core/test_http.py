@@ -14,15 +14,42 @@ from postway import (
     PostwayConfigError,
     PostwayMerchantClient,
     PostwayRequestError,
+    TransportRequest,
     TransportResponse,
 )
-from tests.unit.support import BASE_URL, FakeTransport, api_error, json_response, no_body, only, setup, text
+from tests.unit.support import (
+    BASE_URL,
+    TOKEN,
+    FakeTransport,
+    api_error,
+    empty,
+    json_response,
+    no_body,
+    only,
+    setup,
+    text,
+)
 
 
 def test_encodes_path_parameters() -> None:
     client, transport = setup([json_response(None)])
     client.order_shipments.get_by_ref("A/B ?#1")
     assert only(transport).url == f"{BASE_URL}/order-shipment/get-by-ref/A%2FB%20%3F%231"
+
+
+@pytest.mark.parametrize("value", ["\ud800", "a\udc00"], ids=["lone-high", "lone-low"])
+def test_rejects_a_lone_surrogate_in_a_path_parameter_before_any_request(value: str) -> None:
+    client, transport = setup()
+    with pytest.raises(PostwayConfigError) as caught:
+        client.order_shipments.get_by_ref(value)
+    assert str(caught.value) == "ref must be well-formed Unicode text"
+    assert transport.calls == []
+
+
+def test_encodes_a_non_bmp_character_in_a_path_parameter() -> None:
+    client, transport = setup([json_response(None)])
+    client.order_shipments.get_by_ref("A😀")
+    assert only(transport).url == f"{BASE_URL}/order-shipment/get-by-ref/A%F0%9F%98%80"
 
 
 def test_keeps_dots_inside_a_path_parameter() -> None:
@@ -73,8 +100,24 @@ def test_refuses_a_redirect_response() -> None:
     with pytest.raises(PostwayRequestError) as caught:
         client.auth.account_info()
     assert caught.value.url == f"{BASE_URL}/auth/account/info"
-    assert "redirect refused" in str(caught.value)
+    assert str(caught.value) == f"POST {BASE_URL}/auth/account/info failed: redirect refused"
     assert len(transport.calls) == 1
+
+
+def test_keeps_the_token_and_body_out_of_the_transport_request_repr() -> None:
+    seen: list[TransportRequest] = []
+
+    class Recording:
+        def send(self, request: TransportRequest) -> TransportResponse:
+            seen.append(request)
+            return empty()
+
+    client = PostwayMerchantClient(base_url=BASE_URL, access_token=TOKEN, transport=Recording())
+    client.order_shipments.filter({"page": 1, "limit": 1, "filter": "recipient-secret"})
+    shown = repr(seen[0])
+    assert shown.startswith("TransportRequest(method='POST'")
+    assert TOKEN not in shown
+    assert "recipient-secret" not in shown
 
 
 def test_refuses_a_guarded_call_without_an_access_token_before_any_request() -> None:
@@ -130,6 +173,18 @@ def test_handles_a_non_json_error_body() -> None:
     assert caught.value.status == 502
     assert caught.value.body == "<html>Bad Gateway</html>"
     assert caught.value.code is None
+    assert caught.value.messages == []
+    assert str(caught.value) == "HTTP 502"
+
+
+def test_keeps_a_text_error_body_that_echoes_the_path_out_of_the_message() -> None:
+    echoed = "Cannot GET /merchant/receipt/public/secret-token"
+    client, _ = setup([text(echoed, 404, "text/plain")], access_token=None)
+    with pytest.raises(PostwayApiError) as caught:
+        client.receipts.get_public("secret-token")
+    assert str(caught.value) == "HTTP 404"
+    assert caught.value.body == echoed
+    assert "secret-token" not in repr(caught.value)
 
 
 def test_keeps_malformed_json_as_text() -> None:
@@ -196,6 +251,35 @@ def test_wraps_network_failures_with_the_cause_and_a_redacted_url() -> None:
     assert error.url == f"{BASE_URL}/receipt/public/:token"
     assert str(error) == f"GET {BASE_URL}/receipt/public/:token failed: [Errno 61] Connection refused"
     assert "secret-token" not in str(error)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        f"request to {BASE_URL}/receipt/public/secret-token failed, reason: ECONNREFUSED",
+        "Max retries exceeded with url: /merchant/receipt/public/secret-token",
+    ],
+    ids=["full-url", "path-only"],
+)
+def test_redacts_the_url_quoted_by_a_transport_exception(reason: str) -> None:
+    cause = RuntimeError(reason)
+    client = PostwayMerchantClient(base_url=BASE_URL, transport=FakeTransport([cause]))
+    with pytest.raises(PostwayRequestError) as caught:
+        client.receipts.get_public("secret-token")
+    assert "secret-token" not in str(caught.value)
+    assert "/merchant/receipt/public/:token" in str(caught.value)
+    assert caught.value.__cause__ is cause
+
+
+def test_redacts_the_access_token_quoted_by_a_transport_exception() -> None:
+    client = PostwayMerchantClient(
+        base_url=BASE_URL, access_token=TOKEN, transport=FakeTransport([RuntimeError(f"bad header Bearer {TOKEN}")])
+    )
+    with pytest.raises(PostwayRequestError) as caught:
+        client.order_shipments.get_by_tracking_no("TH0001")
+    assert str(caught.value) == (
+        f"GET {BASE_URL}/order-shipment/get-by-tracking-no/:tracking_no failed: bad header Bearer [redacted]"
+    )
 
 
 def test_wraps_any_transport_exception() -> None:

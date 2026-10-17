@@ -10,7 +10,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from ._access_token import AccessTokenProvider, _AccessTokenManager
 from ._errors import PostwayApiError, PostwayBusinessError, PostwayConfigError, PostwayError, PostwayRequestError
@@ -42,8 +42,10 @@ class TransportRequest:
 
     method: str
     url: str
-    headers: Mapping[str, str]
-    body: bytes | None
+    #: Left out of ``repr()``: it carries ``Authorization``.
+    headers: Mapping[str, str] = field(repr=False)
+    #: Left out of ``repr()``: it can carry recipient details.
+    body: bytes | None = field(repr=False)
     #: Seconds; the transport must give up (raising ``TimeoutError``) once it elapses.
     timeout: float
 
@@ -54,7 +56,7 @@ class TransportResponse:
 
     status: int
     headers: Mapping[str, str] = field(default_factory=dict)
-    body: bytes = b""
+    body: bytes = field(default=b"", repr=False)
 
 
 @runtime_checkable
@@ -301,12 +303,12 @@ class HttpPipeline:
             if _is_timeout(error):
                 message = f"{method} {reported_url} timed out after {effective_timeout:g} s"
             else:
-                message = f"{method} {reported_url} failed: {_reason(error)}"
+                message = f"{method} {reported_url} failed: {_redact(_reason(error), url, reported_url, token)}"
             raise PostwayRequestError(message, method=method, url=reported_url) from error
 
         if 300 <= response.status < 400:
             raise PostwayRequestError(
-                f"{method} {reported_url} failed: redirect refused (HTTP {response.status})",
+                f"{method} {reported_url} failed: redirect refused",
                 method=method,
                 url=reported_url,
             )
@@ -345,8 +347,9 @@ def _parse_body(raw: bytes, content_type: str | None) -> Any:
 
 
 def _describe_body(body: Any) -> tuple[int | None, list[str]]:
-    if isinstance(body, str):
-        return None, [body] if body else []
+    """Only a JSON object's ``message`` counts: a text body (an HTML error page, an echoed path) never
+    becomes the message.
+    """
     if not isinstance(body, dict):
         return None, []
     message = body.get("message")
@@ -364,6 +367,28 @@ def _is_timeout(error: BaseException) -> bool:
     if isinstance(error, TimeoutError):
         return True
     return isinstance(error, urllib.error.URLError) and isinstance(error.reason, TimeoutError)
+
+
+def _redact(reason: str, url: str, reported_url: str, token: str | None) -> str:
+    """A transport's error text with the sent URL (whole, or just its path) replaced by the route template and
+    the token by ``[redacted]``: custom transports often quote the URL they failed to reach.
+    """
+    parts = urlsplit(url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    sent_path = url[len(origin) :].split("?", 1)[0]
+    reported_path = reported_url[len(origin) :]
+    replacements = [
+        (url, reported_url),
+        (origin + sent_path, reported_url),
+        (url[len(origin) :], reported_path),
+        (sent_path, reported_path),
+    ]
+    if token:
+        replacements.append((token, "[redacted]"))
+    for old, new in replacements:
+        if old and old != new:
+            reason = reason.replace(old, new)
+    return reason
 
 
 def _reason(error: BaseException) -> str:
