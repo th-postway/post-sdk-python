@@ -20,6 +20,8 @@ _AUTH_SCHEME = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
 _HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
 _HOST_NAME = re.compile(rf"{_HOST_LABEL}(?:\.{_HOST_LABEL})*\.?")
 _CONTROL = re.compile(r"[\x00-\x1F\x7F]")
+#: A ``str`` holds code points, so any surrogate in it is an unpaired one.
+_SURROGATE = re.compile(r"[\ud800-\udfff]")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
@@ -96,4 +98,6 @@ def assert_path_segment(value: object, name: str) -> str:
     """A path segment that cannot change which route the request reaches."""
     if not isinstance(value, str) or value in ("", ".", ".."):
         raise PostwayConfigError(f'{name} must be a non-empty string other than "." or ".."')
+    if _SURROGATE.search(value):
+        raise PostwayConfigError(f"{name} must be well-formed Unicode text")
     return value

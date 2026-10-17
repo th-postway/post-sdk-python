@@ -183,7 +183,7 @@ class MyTransport:
         return TransportResponse(status=200, headers={"Content-Type": "application/json"}, body=b"{}")
 ```
 
-A transport must **not follow redirects**, must return 4xx/5xx as responses rather than raising, and should raise `TimeoutError` on timeout. Any other exception it raises becomes `PostwayRequestError`; a 3xx response is refused the same way.
+A transport must **not follow redirects**, must return 4xx/5xx as responses rather than raising, and should raise `TimeoutError` on timeout. Any other exception it raises becomes `PostwayRequestError`; a 3xx response is refused the same way. `repr()` of a `TransportRequest` leaves out `headers` (which carry `Authorization`) and `body`, so logging one is safe.
 
 The default `UrllibTransport(ssl_context=None)` uses `ssl.create_default_context()` unless you pass a context, and keeps urllib's standard proxy handling.
 
@@ -247,13 +247,14 @@ The server reports errors as `{"code", "isSuccess": false, "message", "data": nu
 | 404  | Public receipt token invalid                                                                    |
 | 500  | Server error; `messages` is a generic text                                                      |
 
-`code` in the body is **400 or 500**, not the HTTP status. Use `status` to branch. `str(error)` is the messages joined with `"; "`, or `HTTP <status>` when there are none.
+`code` in the body is **400 or 500**, not the HTTP status. Use `status` to branch. `str(error)` is the messages joined with `"; "`, or `HTTP <status>` when there are none. `messages` comes only from the JSON `message` field; a text body (an HTML error page, for example) stays in `body`.
 
-Three details keep error logs safe to keep:
+Four details keep error logs safe to keep:
 
 - `url` is the **route template** (`…/receipt/public/:token`), not the URL that was sent. Receipt tokens, tracking numbers and refs never appear in `url` or the message.
 - `body` (the parsed JSON, text, or `None`) is a read-only property kept out of `args`, `str()`, `repr()` and `vars()`. Read `error.body` explicitly when you need the raw response.
 - Pickling an API error (multiprocessing, task queues) drops `body`.
+- A `PostwayRequestError` quotes the transport's exception with the sent URL (or its path) replaced by the route template and the token by `[redacted]`. `__cause__` is the original exception, unchanged.
 
 `order_shipments.create` and `cancel` can fail **with HTTP 201** and `isSuccess: false`, for example when verification or the courier rejects the parcel. The SDK raises `PostwayBusinessError`, so a normal return always means success.
 
@@ -288,7 +289,7 @@ class FileHttpResponse(TypedDict):
 
 - **Transport**: `base_url` must be `https://`; plain `http://` is accepted only for `localhost`, `127.0.0.1` and `[::1]`. URLs with credentials, a query string, a fragment or control characters are rejected.
 - **Headers**: `access_token`, `token_type` and `user_agent` are checked at construction so a pasted token with a stray line break cannot inject headers or leak into an error message.
-- **Paths**: caller-supplied path parameters are percent-encoded (including `/`) and may not be empty, `.` or `..`, so a bad input cannot reach a different endpoint.
+- **Paths**: caller-supplied path parameters are percent-encoded (including `/`) and may not be empty, `.` or `..` or contain unpaired surrogates, so a bad input cannot reach a different endpoint or fail outside the SDK's error types.
 - **Redirects** are refused: the default transport never follows one, and any 3xx response raises `PostwayRequestError`. The API never redirects, and following one could re-send `Authorization` elsewhere.
 - **Errors** report route templates instead of parameter values, and response bodies stay out of `str`/`repr`/`vars`/pickles (see [Errors](#errors)).
 - **No retries**, except one replay of an authenticated call after a 403 when `get_access_token` is set (the server rejected the token, so nothing ran). Server errors, timeouts and network failures are never retried, so non-idempotent calls such as `create` are never applied twice.
@@ -381,5 +382,5 @@ Deliberate differences:
 
 - **Sync only.** Calls block; there is no `AbortSignal` equivalent. Run calls in a thread pool if you need concurrency.
 - **Timeout granularity.** The default `UrllibTransport` applies `timeout` to each socket operation (connect, each read), not as a total deadline. Its timeout message reads `… timed out after <n> s`.
-- **Redirects** surface as `PostwayRequestError("… failed: redirect refused (HTTP 3xx)")`, the counterpart of Node's `redirect: 'error'`.
+- **Redirects** surface as `PostwayRequestError("… failed: redirect refused")`, the counterpart of Node's `redirect: 'error'`.
 - **Versioning.** The Python package starts at `1.0.0` and versions independently; the Node package's major (22) tracks its Node runtime.
