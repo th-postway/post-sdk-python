@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-17
+
 ### Added
 
 - Runnable Quick start in `demo/` (`make demo`): read-only and sandbox by default, with an opt-in sandbox create + label (`POSTWAY_DEMO_CREATE=1`). `make check` lints and type-checks the demo. Not part of the sdist or wheel.
@@ -41,5 +43,6 @@ Initial public release, a port of the Node SDK `@th-postway/post-sdk` 22.0.0 wit
 - Error `url` and messages report route templates (`receipt/public/:token`) instead of parameter values; `PostwayApiError.body` is kept out of `args`, `str`, `repr`, `vars` and pickles.
 - `PostwayConfigError` messages never echo the offending input.
 
-[Unreleased]: https://github.com/th-postway/post-sdk-python/compare/1.0.0...HEAD
+[Unreleased]: https://github.com/th-postway/post-sdk-python/compare/1.0.1...HEAD
+[1.0.1]: https://github.com/th-postway/post-sdk-python/compare/1.0.0...1.0.1
 [1.0.0]: https://github.com/th-postway/post-sdk-python/releases/tag/1.0.0
